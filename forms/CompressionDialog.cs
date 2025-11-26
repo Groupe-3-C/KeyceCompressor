@@ -110,5 +110,10 @@ namespace KeyceCompressor.Forms
                 Close();
             }
         }
+
+        private void txtSourcePath_TextChanged(object sender, EventArgs e)
+        {
+
+        }
     }
 }

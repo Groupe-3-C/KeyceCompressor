@@ -43,6 +43,7 @@ namespace KeyceCompressor.Forms
             this.txtSourcePath.ReadOnly = true;
             this.txtSourcePath.Size = new System.Drawing.Size(416, 20);
             this.txtSourcePath.TabIndex = 1;
+            this.txtSourcePath.TextChanged += new System.EventHandler(this.txtSourcePath_TextChanged);
             // 
             // lblOutputTitle
             // 
@@ -121,6 +122,7 @@ namespace KeyceCompressor.Forms
             this.Text = "COMPRESSION EN COURS";
             this.ResumeLayout(false);
             this.PerformLayout();
+
         }
 
         #endregion

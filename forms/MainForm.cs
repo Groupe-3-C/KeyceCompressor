@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 using System.Threading.Tasks;
+using KeyceCompressor.Models;
 
 namespace KeyceCompressor.Forms
 {
@@ -26,6 +27,45 @@ namespace KeyceCompressor.Forms
 
             // Initialise l'arborescence depuis les lecteurs racines
             InitializeTree();
+
+            // Ajout des en-têtes de l'historique
+            AddHistoryHeaders();
+        }
+
+        // Nouvelle fonction pour calculer la taille d'un dossier de manière récursive
+        private static long GetDirectorySize(string path)
+        {
+            long size = 0;
+            try
+            {
+                // Ajoute la taille des fichiers dans le répertoire courant
+                foreach (string file in Directory.GetFiles(path))
+                {
+                    if (File.Exists(file))
+                    {
+                        size += new FileInfo(file).Length;
+                    }
+                }
+
+                // Ajoute la taille des sous-répertoires (récursif)
+                foreach (string dir in Directory.GetDirectories(path))
+                {
+                    size += GetDirectorySize(dir);
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Ignorer les dossiers non accessibles
+            }
+            catch (PathTooLongException)
+            {
+                // Ignorer les chemins trop longs
+            }
+            catch (Exception)
+            {
+                // Ignorer autres erreurs
+            }
+            return size;
         }
 
         private void InitializeTree()
@@ -292,6 +332,17 @@ namespace KeyceCompressor.Forms
                 {
                     if (string.IsNullOrEmpty(sourcePath)) continue;
 
+                    // Calcul de la taille avant compression
+                    long sourceSize = 0;
+                    if (File.Exists(sourcePath))
+                    {
+                        sourceSize = new FileInfo(sourcePath).Length;
+                    }
+                    else if (Directory.Exists(sourcePath))
+                    {
+                        sourceSize = GetDirectorySize(sourcePath);
+                    }
+
                     using (var dlg = new CompressionDialog(sourcePath))
                     {
                         var res = dlg.ShowDialog(this);
@@ -299,7 +350,9 @@ namespace KeyceCompressor.Forms
                         {
                             var outFull = dlg.OutputPath;
                             var outName = !string.IsNullOrEmpty(outFull) ? Path.GetFileName(outFull) : Path.GetFileName(sourcePath);
-                            AddToHistory(outName, outFull);
+
+                            // Ajout des informations complètes à l'historique
+                            AddToHistory(outName, outFull, sourceSize);
                             lblStatus.Text = $"Compression terminée : {outName}";
                         }
                         else if (res == DialogResult.Cancel)
@@ -330,6 +383,17 @@ namespace KeyceCompressor.Forms
                 return;
             }
 
+            // Calcul de la taille avant compression
+            long selectedSize = 0;
+            if (File.Exists(selectedPath))
+            {
+                selectedSize = new FileInfo(selectedPath).Length;
+            }
+            else if (Directory.Exists(selectedPath))
+            {
+                selectedSize = GetDirectorySize(selectedPath);
+            }
+
             using (var dlg = new CompressionDialog(selectedPath))
             {
                 var res = dlg.ShowDialog(this);
@@ -337,7 +401,9 @@ namespace KeyceCompressor.Forms
                 {
                     var outFull = dlg.OutputPath;
                     var outName = !string.IsNullOrEmpty(outFull) ? Path.GetFileName(outFull) : Path.GetFileName(selectedPath);
-                    AddToHistory(outName, outFull);
+
+                    // Ajout des informations complètes à l'historique
+                    AddToHistory(outName, outFull, selectedSize);
                     lblStatus.Text = $"Compression terminée : {outName}";
                 }
                 else if (res == DialogResult.Cancel)
@@ -347,25 +413,89 @@ namespace KeyceCompressor.Forms
             }
         }
 
-        // Ajoute une entrée cliquable dans l'historique. fullPath peut être null si inconnu.
-        private void AddToHistory(string displayName, string fullPath = null)
+        // Ajoute les en-têtes de colonnes à flpHistory
+        private void AddHistoryHeaders()
         {
-            var item = new Label
+            // Création d'un Panel pour contenir les Labels d'en-tête
+            var headerPanel = new Panel
             {
-                Text = displayName,
-                AutoSize = false,
-                Width = flpHistory.ClientSize.Width - 4,
-                Height = 24,
-                TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
-                Padding = new Padding(4),
-                Margin = new Padding(2),
-                Cursor = Cursors.Hand,
-                Tag = fullPath
+                Name = "pnlHistoryHeader",
+                BackColor = System.Drawing.Color.FromArgb(52, 73, 94),
+                ForeColor = System.Drawing.Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                Margin = new Padding(0),
+                Padding = new Padding(0),
+                Width = flpHistory.ClientSize.Width - 2,
+                Height = 25,
+                Tag = "Header"
             };
 
-            item.Click += (s, e) =>
+            // Fonction utilitaire pour créer un Label d'en-tête
+            Label CreateHeaderLabel(string text, int width)
             {
-                var tag = (s as Label)?.Tag as string;
+                return new Label
+                {
+                    Text = text,
+                    Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0))),
+                    TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+                    AutoSize = false,
+                    Width = width,
+                    Height = 25,
+                    Padding = new Padding(2),
+                    Margin = new Padding(0),
+                    BackColor = System.Drawing.Color.Transparent,
+                    ForeColor = System.Drawing.Color.White
+                };
+            }
+
+            // Définition des largeurs
+            int widthName = 120;
+            int widthBefore = 80;
+            int widthAfter = 80;
+            int widthDate = 100;
+
+            int totalWidth = widthName + widthBefore + widthAfter + widthDate;
+
+            if (flpHistory.ClientSize.Width > totalWidth)
+            {
+                widthName += flpHistory.ClientSize.Width - totalWidth - 4;
+            }
+
+            // Création et ajout des Labels d'en-tête au Panel
+            headerPanel.Controls.Add(CreateHeaderLabel("Nom", widthName));
+            headerPanel.Controls.Add(CreateHeaderLabel("Taille avant", widthBefore));
+            headerPanel.Controls.Add(CreateHeaderLabel("Taille après", widthAfter));
+            headerPanel.Controls.Add(CreateHeaderLabel("Date", widthDate));
+
+            // Positionnement des Labels dans le Panel
+            int currentX = 0;
+            foreach (Control control in headerPanel.Controls)
+            {
+                control.Location = new System.Drawing.Point(currentX, 0);
+                currentX += control.Width;
+            }
+
+            // Ajout du Panel d'en-tête au FlowLayoutPanel
+            flpHistory.Controls.Add(headerPanel);
+        }
+
+        // Ajoute une entrée cliquable dans l'historique
+        private void AddToHistory(string displayName, string fullPath = null, long sizeBefore = 0)
+        {
+            // Récupération des infos du fichier compressé
+            long sizeAfter = 0;
+            DateTime modDate = DateTime.Now;
+            if (File.Exists(fullPath))
+            {
+                var fi = new FileInfo(fullPath);
+                sizeAfter = fi.Length;
+                modDate = fi.LastWriteTime;
+            }
+
+            // Gestionnaire de clic pour la décompression
+            EventHandler clickHandler = (s, e) =>
+            {
+                var tag = (s as Control)?.Tag as string;
                 if (string.IsNullOrEmpty(tag) || !File.Exists(tag))
                 {
                     MessageBox.Show("Fichier .keyce introuvable : " + (tag ?? "(inconnu)"), "Erreur", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -386,7 +516,89 @@ namespace KeyceCompressor.Forms
                 }
             };
 
-            flpHistory.Controls.Add(item);
+            // Création d'un Panel pour l'entrée d'historique
+            var itemPanel = new Panel
+            {
+                Name = "pnlHistoryItem_" + Guid.NewGuid().ToString("N"),
+                BackColor = System.Drawing.Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                Margin = new Padding(0, 0, 0, 1),
+                Padding = new Padding(0),
+                Width = flpHistory.ClientSize.Width - 2,
+                Height = 24,
+                Cursor = Cursors.Hand,
+                Tag = fullPath
+            };
+
+            itemPanel.Click += clickHandler;
+
+            // Fonction utilitaire pour formater la taille
+            string FormatSize(long bytes)
+            {
+                if (bytes < 1024) return $"{bytes} B";
+                if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+                if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024.0):F1} MB";
+                return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
+            }
+
+            // Définition des largeurs
+            int widthName = 120;
+            int widthBefore = 80;
+            int widthAfter = 80;
+            int widthDate = 100;
+
+            int totalWidth = widthName + widthBefore + widthAfter + widthDate;
+            if (flpHistory.ClientSize.Width > totalWidth)
+            {
+                widthName += flpHistory.ClientSize.Width - totalWidth - 4;
+            }
+
+            // Fonction utilitaire pour créer un Label de donnée
+            Label CreateDataLabel(string text, int width)
+            {
+                return new Label
+                {
+                    Text = text,
+                    Font = new System.Drawing.Font("Segoe UI", 8.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0))),
+                    TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+                    AutoSize = false,
+                    Width = width,
+                    Height = 24,
+                    Padding = new Padding(2),
+                    Margin = new Padding(0),
+                    BackColor = System.Drawing.Color.Transparent,
+                    Tag = fullPath
+                };
+            }
+
+            // Création des Labels de données
+            var lblName = CreateDataLabel(displayName, widthName);
+            var lblSizeBefore = CreateDataLabel(FormatSize(sizeBefore), widthBefore);
+            var lblSizeAfter = CreateDataLabel(FormatSize(sizeAfter), widthAfter);
+            var lblDate = CreateDataLabel(modDate.ToString("dd/MM/yyyy HH:mm"), widthDate);
+
+            // Ajout des Labels au Panel d'entrée
+            itemPanel.Controls.Add(lblName);
+            itemPanel.Controls.Add(lblSizeBefore);
+            itemPanel.Controls.Add(lblSizeAfter);
+            itemPanel.Controls.Add(lblDate);
+
+            // Positionnement des Labels dans le Panel
+            int currentX = 0;
+            foreach (Control control in itemPanel.Controls)
+            {
+                control.Location = new System.Drawing.Point(currentX, 0);
+                currentX += control.Width;
+            }
+
+            // Ajout du Panel d'entrée au FlowLayoutPanel
+            flpHistory.Controls.Add(itemPanel);
+
+            // Pour que le clic sur n'importe quel Label déclenche le clic sur le Panel parent
+            foreach (Control control in itemPanel.Controls)
+            {
+                control.Click += clickHandler;
+            }
         }
     }
 }
