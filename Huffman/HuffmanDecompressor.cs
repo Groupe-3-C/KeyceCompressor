@@ -18,13 +18,7 @@ namespace KeyceCompressor.Huffman
                 if (Encoding.ASCII.GetString(br.ReadBytes(4)) != "KEYC")
                     throw new InvalidDataException("Ce n'est pas un fichier .keyce valide.");
 
-                long treeSize = br.ReadInt64();
-                // Deserialize returns the root HuffmanNode
-                var root = HuffmanTree.Deserialize(br);
-
                 int fileCount = br.ReadInt32();
-                // Le BitReader doit commencer à lire après les métadonnées
-                var bitReader = new BitReader(fs);
 
                 for (int i = 0; i < fileCount; i++)
                 {
@@ -33,35 +27,64 @@ namespace KeyceCompressor.Huffman
                     bool isDirectory = br.ReadBoolean();
                     string fullPath = Path.Combine(outputFolder, relativePath);
 
+                    long originalSize = br.ReadInt64();
+                    long compressedSize = br.ReadInt64();
+
                     if (isDirectory)
                     {
                         Directory.CreateDirectory(fullPath);
-                        br.ReadInt64(); // skip size (0L)
                     }
                     else
                     {
-                        long compressedSize = br.ReadInt64();
                         Directory.CreateDirectory(Path.GetDirectoryName(fullPath) ?? outputFolder);
 
+                        if (originalSize == 0)
+                        {
+                            File.Create(fullPath).Close();
+                            continue;
+                        }
+
+                        // Enregistrement de la position de début de l'arbre pour le calcul de la fin du bloc
+                        long startOfTree = fs.Position;
+                        var root = HuffmanTree.Deserialize(br);
+                        long endOfTree = fs.Position;
+
+                        var bitReader = new BitReader(fs);
+
                         using (var outputStream = new FileStream(fullPath, FileMode.Create))
-                        using (var bw = new BinaryWriter(outputStream))
                         {
                             var node = root;
                             long bytesWritten = 0;
 
-                            while (bytesWritten < compressedSize)
+                            // Décompression bit par bit jusqu'à atteindre la taille originale
+                            while (bytesWritten < originalSize)
                             {
                                 bool bit = bitReader.ReadBit();
                                 node = bit ? node.Right : node.Left;
 
                                 if (node.IsLeaf)
                                 {
-                                    bw.Write(node.ByteValue.Value);
+                                    outputStream.WriteByte(node.ByteValue.Value);
                                     bytesWritten++;
                                     node = root;
                                 }
                             }
+
+                            // Nous devons nous assurer que nous avons lu exactement originalSize octets.
+                            if (bytesWritten != originalSize)
+                            {
+                                throw new InvalidDataException("Erreur de décompression : la taille décompressée ne correspond pas à la taille originale.");
+                            }
                         }
+
+                        // S'assurer que nous sommes à la bonne position pour le prochain fichier
+                        // La position finale attendue est : startOfTree + compressedSize.
+                        long expectedEndPosition = startOfTree + compressedSize;
+
+                        // S'assurer que nous sommes à la bonne position pour le prochain fichier
+                        if (fs.Position < expectedEndPosition)
+                            fs.Seek(expectedEndPosition - fs.Position, SeekOrigin.Current);
+
                     }
 
                     progress.Report((i + 1) * 100 / fileCount);

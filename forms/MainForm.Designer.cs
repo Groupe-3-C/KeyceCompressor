@@ -129,7 +129,7 @@
             this.lblHistoryTitle.Name = "lblHistoryTitle";
             this.lblHistoryTitle.Size = new System.Drawing.Size(435, 28);
             this.lblHistoryTitle.TabIndex = 5;
-            this.lblHistoryTitle.Text = "Historique des fichiers .keyce";
+            this.lblHistoryTitle.Text = "Historique des fichiers";
             this.lblHistoryTitle.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             // 
             // panelBottom
@@ -149,7 +149,7 @@
             this.lblStatus.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(44)))), ((int)(((byte)(62)))), ((int)(((byte)(80)))));
             this.lblStatus.Location = new System.Drawing.Point(20, 20);
             this.lblStatus.Name = "lblStatus";
-            this.lblStatus.Size = new System.Drawing.Size(133, 23);
+            this.lblStatus.Size = new System.Drawing.Size(300, 23);
             this.lblStatus.TabIndex = 0;
             this.lblStatus.Text = "Prêt";
             // 
@@ -159,7 +159,7 @@
             this.progressMain.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(189)))), ((int)(((byte)(195)))), ((int)(((byte)(199)))));
             this.progressMain.Location = new System.Drawing.Point(406, 620);
             this.progressMain.Name = "progressMain";
-            this.progressMain.Size = new System.Drawing.Size(314, 36);
+            this.progressMain.Size = new System.Drawing.Size(314, 314);
             this.progressMain.Style = System.Windows.Forms.ProgressBarStyle.Continuous;
             this.progressMain.TabIndex = 1;
             // 

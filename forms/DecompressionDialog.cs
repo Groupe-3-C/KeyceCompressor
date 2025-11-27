@@ -1,110 +1,154 @@
-﻿using System;
-using System.IO;
-using System.Windows.Forms;
+﻿using KeyceCompressor.Huffman;
+using KeyceCompressor.Zip;
+using System;
 using System.ComponentModel;
-using System.Drawing;
-using KeyceCompressor.Huffman;
+using System.IO;
+using System.Threading;
+using System.Windows.Forms;
 
 namespace KeyceCompressor.Forms
 {
     public partial class DecompressionDialog : Form
     {
-        private readonly string keyceFile;
-        private readonly BackgroundWorker worker = new BackgroundWorker();
+        private readonly string archivePath;
+        private BackgroundWorker worker;
+        private CancellationTokenSource cts;
 
-        public DecompressionDialog(string file)
+        public string Format { get; set; } = ".keyce";
+
+        public DecompressionDialog(string archive)
         {
-            keyceFile = file ?? "";
+            archivePath = archive ?? throw new ArgumentNullException(nameof(archive));
             InitializeComponent();
 
-            // Initialiser valeurs contrôles du designer
-            lblKeyceSourceTitle.Text = "Fichier .keyce : " + keyceFile;
-            var dir = Path.GetDirectoryName(keyceFile);
-            if (string.IsNullOrEmpty(dir)) dir = Environment.CurrentDirectory;
-            txtDestFolder.Text = Path.Combine(dir, Path.GetFileNameWithoutExtension(keyceFile));
-            lblDecompressionStatus.Text = "Statut : Prêt pour la décompression.";
+            this.Text = $"Décompression → {Path.GetExtension(archive).ToUpper()}";
+            txtArchivePath.Text = archivePath;
 
-            // btnModify (renommé de btnBrowseDest)
-            btnBrowseDest.Click += (s, e) =>
+            string defaultFolder = Path.Combine(
+                Path.GetDirectoryName(archivePath) ?? "",
+                Path.GetFileNameWithoutExtension(archivePath)
+            );
+            txtOutputFolder.Text = defaultFolder;
+
+            btnBrowseFolder.Click += (s, e) =>
             {
-                using (var fbd = new FolderBrowserDialog { SelectedPath = txtDestFolder.Text })
+                using (var fbd = new FolderBrowserDialog { SelectedPath = txtOutputFolder.Text })
                 {
-                    if (fbd.ShowDialog() == DialogResult.OK) txtDestFolder.Text = fbd.SelectedPath;
+                    if (fbd.ShowDialog() == DialogResult.OK)
+                        txtOutputFolder.Text = fbd.SelectedPath;
                 }
             };
 
-            // btnOK (renommé de btnDecompressOK)
-            btnDecompressOK.Click += (s, e) =>
+            btnDecompressOK.Click += BtnDecompressOK_Click;
+            btnDecompressCancel.Click += BtnDecompressCancel_Click;
+        }
+
+        private void BtnDecompressOK_Click(object sender, EventArgs e)
+        {
+            if (!Directory.Exists(txtOutputFolder.Text))
             {
-                btnDecompressOK.Enabled = false;
-                btnBrowseDest.Enabled = false;
-                lblDecompressionStatus.Text = "Décompression en cours...";
-
-                worker.DoWork += (s2, e2) =>
+                try { Directory.CreateDirectory(txtOutputFolder.Text); }
+                catch
                 {
-                    // Vérifier si l'annulation a été demandée
-                    if (worker.CancellationPending)
-                    {
-                        e2.Cancel = true;
-                        return;
-                    }
+                    MessageBox.Show("Dossier de destination invalide.", "Erreur", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+            }
 
-                    HuffmanDecompressor.Decompress(keyceFile, txtDestFolder.Text, new Progress<int>(p =>
-                    {
-                        try { progressDecompression.Value = p; } catch { }
-                        if (worker.CancellationPending)
-                        {
-                            // On ne peut pas annuler directement ici, mais on peut signaler
-                            // au RunWorkerCompleted que l'annulation a été demandée.
-                        }
-                    }));
-                };
+            btnDecompressOK.Enabled = false;
+            btnBrowseFolder.Enabled = false;
+            btnDecompressCancel.Text = "Annuler";
+            lblStatus.Text = "Décompression en cours...";
+            progressBar.Value = 0;
 
-                worker.WorkerSupportsCancellation = true;
-                worker.RunWorkerCompleted += (s2, e2) =>
+            cts = new CancellationTokenSource();
+            worker = new BackgroundWorker
+            {
+                WorkerSupportsCancellation = true,
+                WorkerReportsProgress = true
+            };
+
+            worker.ProgressChanged += (s, args) =>
+            {
+                if (args.ProgressPercentage >= 0 && args.ProgressPercentage <= 100)
+                    progressBar.Value = args.ProgressPercentage;
+            };
+
+            worker.DoWork += (s, args) =>
+            {
+                var progress = new Progress<int>(p => worker.ReportProgress(p));
+
+                try
                 {
-                    btnDecompressOK.Enabled = true;
-                    btnBrowseDest.Enabled = true;
-
-                    if (e2.Cancelled)
-                    {
-                        lblDecompressionStatus.Text = "Annulée !";
-                        MessageBox.Show("Décompression annulée !", "Annulation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                        DialogResult = DialogResult.Cancel;
-                        Close();
-                    }
-                    else if (e2.Error != null)
-                    {
-                        lblDecompressionStatus.Text = "Erreur !";
-                        MessageBox.Show("Erreur : " + e2.Error.Message, "Erreur", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        DialogResult = DialogResult.Abort;
-                        Close();
-                    }
+                    if (Format == ".keyce")
+                        // L'argument cts.Token a été retiré pour correspondre à la signature de la méthode
+                        HuffmanDecompressor.Decompress(archivePath, txtOutputFolder.Text, progress);
+                    else if (Format == ".zip")
+                        ZipCompressor.Decompress(archivePath, txtOutputFolder.Text, progress);
                     else
-                    {
-                        lblDecompressionStatus.Text = "Succès ! Décompression terminée.";
-                        MessageBox.Show("Décompression terminée !", "Succès", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        DialogResult = DialogResult.OK;
-                        Close();
-                    }
-                };
-                worker.RunWorkerAsync();
+                        throw new NotSupportedException($"Format {Format} non pris en charge.");
+                }
+                catch (OperationCanceledException)
+                {
+                    args.Cancel = true;
+                }
+                catch (Exception ex)
+                {
+                    args.Result = ex;
+                }
             };
 
-            // btnCancel (renommé de btnDecompressCancel)
-            btnDecompressCancel.Click += (s, e) =>
+            worker.RunWorkerCompleted += (s, args) =>
             {
-                if (worker.IsBusy)
+                progressBar.Value = 100;
+
+                if (args.Cancelled)
                 {
-                    worker.CancelAsync();
-                    lblDecompressionStatus.Text = "Annulation demandée...";
-                }
-                else
-                {
+                    lblStatus.Text = "Décompression annulée.";
+                    MessageBox.Show("Décompression annulée par l'utilisateur.", "Annulé",
+                                    MessageBoxButtons.OK, MessageBoxIcon.Information);
                     DialogResult = DialogResult.Cancel;
                     Close();
+                    return;
                 }
+
+                Exception error = args.Error ?? (args.Result as Exception);
+
+                if (error != null)
+                {
+                    lblStatus.Text = "Échec de la décompression";
+                    MessageBox.Show("Erreur :\n" + error.Message, "Erreur",
+                                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    DialogResult = DialogResult.Cancel;
+                    Close();
+                    return;
+                }
+
+                lblStatus.Text = "Décompression terminée !";
+                MessageBox.Show($"Décompression réussie !\nDossier : {txtOutputFolder.Text}", "Succès",
+                                MessageBoxButtons.OK, MessageBoxIcon.Information);
+                DialogResult = DialogResult.OK;
+                Close();
             };
+
+            worker.RunWorkerAsync();
+        }
+
+        private void BtnDecompressCancel_Click(object sender, EventArgs e)
+        {
+            if (worker != null && worker.IsBusy)
+            {
+                cts?.Cancel();
+                worker.CancelAsync();
+                btnDecompressCancel.Enabled = false;
+                btnDecompressCancel.Text = "Annulation...";
+                lblStatus.Text = "Annulation en cours...";
+            }
+            else
+            {
+                DialogResult = DialogResult.Cancel;
+                Close();
+            }
         }
     }
 }

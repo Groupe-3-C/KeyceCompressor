@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using System.Linq;
+using System.Linq; // Ajouté pour la méthode Select
 
 namespace KeyceCompressor.Huffman
 {
@@ -19,46 +19,11 @@ namespace KeyceCompressor.Huffman
             else
                 files.Add((Path.GetFileName(source), source, false));
 
-            // 1. Calcul des fréquences (sur tous les fichiers)
-            var freq = new Dictionary<byte, long>();
-            foreach (var f in files)
-            {
-                if (f.Dir) continue;
-                var data = File.ReadAllBytes(f.Full);
-                foreach (var b in data)
-                {
-                    byte key = b;
-                    long cur;
-                    if (freq.TryGetValue(key, out cur)) freq[key] = cur + 1;
-                    else freq[key] = 1;
-                }
-            }
-
-            // 2. Construction de l'arbre et des codes
-            var tree = new HuffmanTree(freq);
-            var codes = tree.GetCodes();
-
-            // 3. Écriture du fichier .keyce
             using (var fs = new FileStream(output, FileMode.Create))
             using (var bw = new BinaryWriter(fs, Encoding.UTF8))
             {
                 // Magic number
                 bw.Write(Encoding.ASCII.GetBytes("KEYC"));
-
-                // Placeholder pour la taille de l'arbre
-                bw.Write(0L);
-
-                // Sérialisation de l'arbre
-                tree.Serialize(bw);
-                long treeEnd = fs.Position;
-
-                // Écriture de la taille de l'arbre
-                fs.Seek(4, SeekOrigin.Begin);
-                bw.Write(treeEnd - 12); // 12 = 4 (magic) + 8 (long)
-
-                // Retour à la fin de l'arbre
-                fs.Seek(treeEnd, SeekOrigin.Begin);
-
                 // Nombre de fichiers/dossiers
                 bw.Write(files.Count);
 
@@ -72,30 +37,50 @@ namespace KeyceCompressor.Huffman
 
                     if (f.Dir)
                     {
-                        // Pour les dossiers, on écrit une taille de 0
-                        bw.Write(0L);
+                        bw.Write(0L); // Taille originale
+                        bw.Write(0L); // Taille compressée
                     }
                     else
                     {
-                        // Compression du contenu
                         var data = File.ReadAllBytes(f.Full);
-                        var bits = new List<bool>();
+                        bw.Write((long)data.Length); // Taille originale
 
+                        if (data.Length == 0)
+                        {
+                            bw.Write(0L); // Taille compressée
+                            continue;
+                        }
+
+                        // 1. Calcul des fréquences
+                        var freq = new Dictionary<byte, long>();
                         foreach (var b in data)
                         {
-                            string code = codes[b];
-                            foreach (char bitChar in code)
-                            {
-                                bits.Add(bitChar == '1');
-                            }
+                            if (freq.ContainsKey(b)) freq[b]++;
+                            else freq[b] = 1;
+                        }
+
+                        // 2. Construction de l'arbre et des codes
+                        var tree = new HuffmanTree(freq);
+                        var codes = tree.GetCodes();
+
+                        // Placeholder pour la taille compressée
+                        long compressedDataStart = fs.Position;
+                        bw.Write(0L);
+
+                        // Sérialisation de l'arbre
+                        tree.Serialize(bw);
+
+                        // 3. Compression du contenu
+                        var bits = new List<bool>();
+                        foreach (var b in data)
+                        {
+                            // L'extension System.Linq est nécessaire pour .Select
+                            bits.AddRange(codes[b].Select(c => c == '1'));
                         }
 
                         // Padding
                         int pad = (8 - bits.Count % 8) % 8;
                         for (int p = 0; p < pad; p++) bits.Add(false);
-
-                        // Écriture de la taille en octets
-                        bw.Write((long)(bits.Count / 8));
 
                         // Écriture des octets compressés
                         for (int i = 0; i < bits.Count; i += 8)
@@ -110,6 +95,21 @@ namespace KeyceCompressor.Huffman
                             }
                             bw.Write(currentByte);
                         }
+
+                        // Mise à jour de la taille compressée
+                        long compressedDataEnd = fs.Position;
+                        // La taille compressée est la taille totale du bloc (arbre + bits) moins la taille du placeholder (8 octets)
+                        long compressedSize = compressedDataEnd - (compressedDataStart + 8);
+
+                        // Sauvegarder la position actuelle
+                        long currentPosition = fs.Position;
+
+                        // Écrire la taille compressée
+                        fs.Seek(compressedDataStart, SeekOrigin.Begin);
+                        bw.Write(compressedSize);
+
+                        // Retourner à la position après les données compressées
+                        fs.Seek(currentPosition, SeekOrigin.Begin);
                     }
                     progress.Report(++done * 100 / files.Count);
                 }
